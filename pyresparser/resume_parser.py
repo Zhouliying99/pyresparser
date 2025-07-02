@@ -17,11 +17,13 @@ class ResumeParser(object):
         skills_file=None,
         custom_regex=None
     ):
-        nlp = spacy.load('en_core_web_sm')
-        custom_nlp = spacy.load(os.path.dirname(os.path.abspath(__file__)))
+        self.nlp = spacy.load('en_core_web_sm')
+        # 暂时注释掉自定义模型的加载
+        # custom_nlp = spacy.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ner'))
+        self.custom_nlp = self.nlp  # 临时使用标准模型替代
         self.__skills_file = skills_file
         self.__custom_regex = custom_regex
-        self.__matcher = Matcher(nlp.vocab)
+        self.__matcher = Matcher(self.nlp.vocab)
         self.__details = {
             'name': None,
             'email': None,
@@ -42,8 +44,8 @@ class ResumeParser(object):
             ext = self.__resume.name.split('.')[1]
         self.__text_raw = utils.extract_text(self.__resume, '.' + ext)
         self.__text = ' '.join(self.__text_raw.split())
-        self.__nlp = nlp(self.__text)
-        self.__custom_nlp = custom_nlp(self.__text_raw)
+        self.__nlp = self.nlp(self.__text)
+        self.__custom_nlp = self.custom_nlp(self.__text_raw)
         self.__noun_chunks = list(self.__nlp.noun_chunks)
         self.__get_basic_details()
 
