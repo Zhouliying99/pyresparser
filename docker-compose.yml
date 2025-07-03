@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  resume-parser:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./resumes:/app/resumes
+      - ./uploads:/app/uploads
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped 
