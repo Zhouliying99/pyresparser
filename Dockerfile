@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
     poppler-utils \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 首先复制requirements.txt

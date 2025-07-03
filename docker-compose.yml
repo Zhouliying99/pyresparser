@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   resume-parser:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: resume-parser
     ports:
       - "8501:8501"
     volumes:
@@ -10,4 +13,16 @@ services:
       - ./uploads:/app/uploads
     environment:
       - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped 
