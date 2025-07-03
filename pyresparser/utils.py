@@ -17,6 +17,7 @@ from pdfminer.pdfpage import PDFPage
 from pdfminer.pdfparser import PDFSyntaxError
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
+from spacy.matcher import Matcher
 
 
 def extract_text_from_pdf(pdf_path):
@@ -219,20 +220,38 @@ def extract_entity_sections_grad(text):
     return entities
 
 
-def extract_entities_wih_custom_model(custom_nlp_text):
+def extract_entities_wih_custom_model(custom_nlp_text, lang='en'):
     '''
     Helper function to extract different entities with custom
     trained model using SpaCy's NER
 
     :param custom_nlp_text: object of `spacy.tokens.doc.Doc`
+    :param lang: language of the text (en/zh)
     :return: dictionary of entities
     '''
     entities = {}
+    
+    if lang == 'zh':
+        # 中文实体识别的特殊处理
+        # 可以根据需要添加更多实体类型
+        entity_types = {
+            'PERSON': '人名',
+            'ORG': '组织',
+            'GPE': '地点',
+            'DATE': '日期',
+            'MONEY': '金额'
+        }
+    else:
+        entity_types = None  # 英文使用默认实体类型
+
     for ent in custom_nlp_text.ents:
-        if ent.label_ not in entities.keys():
-            entities[ent.label_] = [ent.text]
+        # 如果是中文且有对应的中文实体类型，使用中文类型
+        label = entity_types.get(ent.label_, ent.label_) if lang == 'zh' and entity_types else ent.label_
+        if label not in entities.keys():
+            entities[label] = [ent.text]
         else:
-            entities[ent.label_].append(ent.text)
+            entities[label].append(ent.text)
+    
     for key in entities.keys():
         entities[key] = list(set(entities[key]))
     return entities
@@ -325,33 +344,72 @@ def extract_email(text):
     Helper function to extract email id from text
 
     :param text: plain text extracted from resume file
+    :return: email address string if found, else None
     '''
+    # 先尝试清理常见的标题
+    text = re.sub(r'(邮箱[：:]|邮件[：:]|电子邮件[：:]|Email[：:]|E-mail[：:]|Mail[：:]|Mailbox[：:]|箱[：:])', '', text)
+    
+    # 提取邮箱地址
     email = re.findall(r"([^@|\s]+@[^@]+\.[^@|\s]+)", text)
     if email:
         try:
             return email[0].split()[0].strip(';')
         except IndexError:
             return None
+    return None
 
 
-def extract_name(nlp_text, matcher):
+def extract_name(nlp_text, matcher, lang='en'):
     '''
     Helper function to extract name from spacy nlp text
 
     :param nlp_text: object of `spacy.tokens.doc.Doc`
     :param matcher: object of `spacy.matcher.Matcher`
+    :param lang: language of the text (en/zh)
     :return: string of full name
     '''
-    pattern = [cs.NAME_PATTERN]
-
-    matcher.add('NAME', [*pattern])
+    if lang == 'zh':
+        # 创建新的matcher避免冲突
+        matcher = Matcher(nlp_text.vocab)
+        for i, pattern in enumerate(cs.ZH_NAME_PATTERNS):
+            matcher.add(f'ZH_NAME_{i}', [pattern])
+    else:
+        matcher = Matcher(nlp_text.vocab)
+        matcher.add('NAME', [cs.NAME_PATTERN])
 
     matches = matcher(nlp_text)
-
-    for _, start, end in matches:
+    
+    # 存储所有可能的名字
+    names = []
+    for match_id, start, end in matches:
         span = nlp_text[start:end]
-        if 'name' not in span.text.lower():
-            return span.text
+        if lang == 'zh':
+            # 中文名字不需要检查'name'
+            # 但需要检查是否在标题或者其他不相关的文本中
+            text = span.text
+            skip_words = ['姓名', '名字', '标题', '职位', '岗位']
+            should_skip = any(skip in text for skip in skip_words)
+            if not should_skip:
+                # 验证名字是否以常见姓氏开头
+                first_char = text[0]
+                if first_char in cs.CHINESE_SURNAMES:
+                    names.append(text)
+        else:
+            # 英文名字需要检查'name'不在文本中
+            if 'name' not in span.text.lower():
+                names.append(span.text)
+    
+    # 如果找到多个名字，选择最可能的那个
+    if names:
+        if lang == 'zh':
+            # 中文名字优先选择2-3个字的
+            valid_names = [n for n in names if 2 <= len(n) <= 3]
+            return valid_names[0] if valid_names else names[0]
+        else:
+            # 英文名字返回第一个
+            return names[0]
+    
+    return None
 
 
 def extract_mobile_number(text, custom_regex=None):
@@ -382,12 +440,14 @@ def extract_mobile_number(text, custom_regex=None):
         return number
 
 
-def extract_skills(nlp_text, noun_chunks, skills_file=None):
+def extract_skills(nlp_text, noun_chunks, skills_file=None, lang='en'):
     '''
     Helper function to extract skills from spacy nlp text
 
     :param nlp_text: object of `spacy.tokens.doc.Doc`
     :param noun_chunks: noun chunks extracted from nlp text
+    :param skills_file: custom skills file path
+    :param lang: language of the text (en/zh)
     :return: list of skills extracted
     '''
     tokens = [token.text for token in nlp_text if not token.is_stop]
@@ -399,16 +459,31 @@ def extract_skills(nlp_text, noun_chunks, skills_file=None):
         data = pd.read_csv(skills_file)
     skills = list(data.columns.values)
     skillset = []
-    # check for one-grams
-    for token in tokens:
-        if token.lower() in skills:
-            skillset.append(token)
 
-    # check for bi-grams and tri-grams
-    for token in noun_chunks:
-        token = token.text.lower().strip()
-        if token in skills:
-            skillset.append(token)
+    # 中文处理逻辑
+    if lang == 'zh':
+        # 对于中文，直接使用分词结果
+        for token in tokens:
+            if token.lower() in skills:
+                skillset.append(token)
+            # 处理常见的中文技能词组
+            for skill in skills:
+                if skill.lower() in token.lower():
+                    skillset.append(skill)
+    else:
+        # 英文处理逻辑保持不变
+        # check for one-grams
+        for token in tokens:
+            if token.lower() in skills:
+                skillset.append(token)
+
+        # check for bi-grams and tri-grams
+        if noun_chunks:  # 只在有noun_chunks的情况下处理
+            for token in noun_chunks:
+                token = token.text.lower().strip()
+                if token in skills:
+                    skillset.append(token)
+
     return [i.capitalize() for i in set([i.lower() for i in skillset])]
 
 
@@ -418,23 +493,38 @@ def cleanup(token, lower=True):
     return token.strip()
 
 
-def extract_education(nlp_text):
+def extract_education(nlp_text, lang='en'):
     '''
     Helper function to extract education from spacy nlp text
 
     :param nlp_text: object of `spacy.tokens.doc.Doc`
+    :param lang: language of the text (en/zh)
     :return: tuple of education degree and year if year if found
              else only returns education degree
     '''
     edu = {}
     # Extract education degree
     try:
-        for index, text in enumerate(nlp_text):
-            for tex in text.split():
-                tex = re.sub(r'[?|$|.|!|,]', r'', tex)
-                if tex.upper() in cs.EDUCATION and tex not in cs.STOPWORDS:
-                    edu[tex] = text + nlp_text[index + 1]
-    except IndexError:
+        if lang == 'zh':
+            # 中文学历关键词
+            zh_degrees = ['博士', '硕士', '本科', '学士', '专科', '大专', '中专', 'MBA', 'EMBA', 'PhD']
+            text = nlp_text.text  # 获取完整文本
+            for degree in zh_degrees:
+                if degree in text:
+                    # 找到学历关键词所在的句子
+                    for sent in nlp_text.sents:
+                        if degree in sent.text:
+                            edu[degree] = sent.text
+                            break
+        else:
+            # 英文学历提取
+            for sent in nlp_text.sents:
+                for token in sent:
+                    token_text = token.text.strip()
+                    token_text = re.sub(r'[?|$|.|!|,]', r'', token_text)
+                    if token_text.upper() in cs.EDUCATION and token_text not in cs.STOPWORDS:
+                        edu[token_text] = sent.text
+    except Exception:
         pass
 
     # Extract year
