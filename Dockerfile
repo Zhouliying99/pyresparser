@@ -43,6 +43,9 @@ RUN pip install /tmp/en_core_web_sm-3.8.0.tar.gz && \
     pip install /tmp/zh_core_web_sm-3.8.0.tar.gz && \
     rm /tmp/*.tar.gz
 
+# 下载NLTK数据
+RUN python -c "import nltk; nltk.download('punkt'); nltk.download('averaged_perceptron_tagger'); nltk.download('maxent_ne_chunker'); nltk.download('words'); nltk.download('stopwords'); nltk.download('wordnet')"
+
 # 复制其余项目文件
 COPY . .
 
