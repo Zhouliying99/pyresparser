@@ -31,12 +31,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 单独安装spacy（使用特殊参数避免安装问题）
 RUN pip install --no-cache-dir spacy --pre --no-build-isolation
 
+# 创建模型目录
+RUN mkdir -p /usr/local/lib/python3.12/site-packages/spacy/data
+
+# 复制预下载的模型（假设模型文件在 models 目录中）
+COPY models/en_core_web_sm-3.8.0.tar.gz /tmp/
+COPY models/zh_core_web_sm-3.8.0.tar.gz /tmp/
+
+# 安装模型
+RUN pip install /tmp/en_core_web_sm-3.8.0.tar.gz && \
+    pip install /tmp/zh_core_web_sm-3.8.0.tar.gz && \
+    rm /tmp/*.tar.gz
+
 # 复制其余项目文件
 COPY . .
-
-# 安装spaCy的语言模型
-RUN python -m spacy download en_core_web_sm
-RUN python -m spacy download zh_core_web_sm
 
 # 设置环境变量
 ENV PYTHONPATH=/app
